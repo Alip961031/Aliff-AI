@@ -2,16 +2,14 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
-  <title>Aliff</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Aliff – AI Assistant</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f172a; color: #e2e8f0; height: 100vh; display: flex; justify-content: center; align-items: center; padding: 20px; }
-    .app { max-width: 1400px; width: 100%; height: 95vh; display: flex; gap: 20px; background: #1e293b; border-radius: 28px; overflow: hidden; box-shadow: 0 25px 40px -12px rgba(0,0,0,0.4); }
-    .chat-container { flex: 3; display: flex; flex-direction: column; background: #1e293b; min-width: 0; }
-    .dev-kit { flex: 1; background: #0f172a; border-left: 1px solid #334155; padding: 20px; display: flex; flex-direction: column; gap: 20px; overflow-y: auto; }
+    body { font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; background: #0f172a; color: #e2e8f0; height: 100vh; display: flex; justify-content: center; align-items: center; padding: 20px; }
+    .chat-container { max-width: 900px; width: 100%; height: 90vh; background: #1e293b; border-radius: 28px; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 25px 40px -12px rgba(0,0,0,0.4); }
     .messages { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 12px; }
-    .user-message, .assistant-message { max-width: 85%; padding: 10px 16px; border-radius: 24px; line-height: 1.4; word-break: break-word; }
+    .user-message, .assistant-message { max-width: 85%; padding: 10px 16px; border-radius: 24px; line-height: 1.4; word-break: break-word; font-size: 16px; }
     .user-message { align-self: flex-end; background: #3b82f6; color: white; }
     .assistant-message { align-self: flex-start; background: #334155; }
     .attachment-badge { font-size: 11px; margin-top: 6px; opacity: 0.8; display: flex; align-items: center; gap: 6px; }
@@ -21,61 +19,43 @@
     .file-preview { display: flex; flex-wrap: wrap; gap: 8px; }
     .preview { background: #1e293b; padding: 4px 8px; border-radius: 20px; font-size: 11px; display: inline-flex; align-items: center; gap: 6px; }
     .input-row { display: flex; gap: 10px; align-items: flex-end; }
-    textarea { flex: 1; background: #1e293b; border: 1px solid #334155; border-radius: 28px; padding: 12px 16px; color: white; font-size: 14px; font-family: inherit; resize: none; outline: none; }
-    button { background: #3b82f6; border: none; padding: 12px 24px; border-radius: 28px; color: white; font-weight: bold; cursor: pointer; transition: background 0.1s; }
+    textarea { flex: 1; background: #1e293b; border: 1px solid #334155; border-radius: 28px; padding: 12px 16px; color: white; font-size: 15px; font-family: inherit; resize: none; outline: none; }
+    button { background: #3b82f6; border: none; padding: 12px 24px; border-radius: 28px; color: white; font-weight: bold; cursor: pointer; }
     button:hover { background: #2563eb; }
-    .session-info { padding: 8px 16px; background: #0f172a; font-size: 12px; color: #94a3b8; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; border-top: 1px solid #334155; }
+    .session-info { padding: 8px 16px; background: #0f172a; font-size: 12px; color: #94a3b8; display: flex; justify-content: space-between; border-top: 1px solid #334155; }
     .typing-indicator { display: inline-flex; align-items: center; gap: 4px; background: #334155; padding: 10px 16px; border-radius: 24px; align-self: flex-start; }
     .typing-indicator span { width: 8px; height: 8px; background: #94a3b8; border-radius: 50%; animation: pulse 1.2s infinite; }
     @keyframes pulse { 0%,100% { opacity: 0.3; transform: translateY(0); } 50% { opacity: 1; transform: translateY(-3px); } }
-    .typing-indicator span:nth-child(2) { animation-delay: 0.2s; }
-    .typing-indicator span:nth-child(3) { animation-delay: 0.4s; }
-    .dev-kit h3 { font-size: 1rem; margin-bottom: 12px; border-bottom: 1px solid #334155; padding-bottom: 6px; }
-    .dev-kit textarea, .dev-kit input, .dev-kit select { width: 100%; background: #1e293b; border: 1px solid #334155; border-radius: 16px; padding: 8px 10px; color: #e2e8f0; font-family: monospace; font-size: 12px; margin-bottom: 12px; }
-    .dev-kit label { display: flex; align-items: center; gap: 8px; font-size: 13px; margin-bottom: 10px; }
-    .dev-kit button { width: 100%; margin-top: 6px; background: #2563eb; padding: 8px; font-size: 12px; }
-    .raw-json { background: #1e293b; border-radius: 12px; padding: 8px; font-family: monospace; font-size: 10px; white-space: pre-wrap; max-height: 200px; overflow-y: auto; margin-top: 8px; }
-    @media (max-width: 800px) { .app { flex-direction: column; } .dev-kit { border-left: none; border-top: 1px solid #334155; max-height: 40%; } }
   </style>
 </head>
 <body>
-<div class="app">
-  <div class="chat-container">
-    <div class="messages" id="messages"></div>
-    <div class="input-area">
-      <div class="file-row">
-        <label class="file-label"><input type="file" id="fileInput" style="display:none" multiple>📎 Attach files</label>
-        <div id="filePreview" class="file-preview"></div>
-      </div>
-      <div class="input-row">
-        <textarea id="messageInput" rows="1" placeholder="Ask Aliff anything... (Shift+Enter for new line)"></textarea>
-        <button id="sendBtn">Send</button>
-      </div>
+<div class="chat-container">
+  <div class="messages" id="messages"></div>
+  <div class="input-area">
+    <div class="file-row">
+      <label class="file-label"><input type="file" id="fileInput" style="display:none" multiple>📎 Attach files</label>
+      <div id="filePreview" class="file-preview"></div>
     </div>
-    <div class="session-info">
-      <span>Session: <span id="sessionId"></span></span>
-      <button id="newSessionBtn" style="background:#334155; padding:4px 12px;">New conversation</button>
-      <label><input type="checkbox" id="streamToggle" checked> Stream</label>
+    <div class="input-row">
+      <textarea id="messageInput" rows="1" placeholder="Ask Aliff anything... (Shift+Enter for new line)"></textarea>
+      <button id="sendBtn">Send</button>
     </div>
   </div>
-  <div class="dev-kit">
-    <h3>🛠️ Developer Kit</h3>
-    <div><label>System Prompt</label><textarea id="systemPromptInput" rows="2"></textarea><button id="savePromptBtn">Save prompt</button></div>
-    <div><label><input type="checkbox" id="internetSearchToggle"> Internet search (auto‑detects queries)</label></div>
-    <div><label>Developer note (prepended to each message)</label><textarea id="devNoteInput" rows="2"></textarea><button id="saveNoteBtn">Save note</button></div>
-    <div><label>Raw Conversation History (JSON)</label><div id="rawHistory" class="raw-json">Loading...</div><button id="refreshHistoryBtn">Refresh</button></div>
-    <div><button id="clearSettingsBtn" style="background:#dc2626;">Reset Dev Kit</button></div>
+  <div class="session-info">
+    <span>Session: <span id="sessionId"></span></span>
+    <button id="newSessionBtn" style="background:#334155; padding:4px 12px;">New conversation</button>
+    <label><input type="checkbox" id="streamToggle" checked> Stream</label>
   </div>
 </div>
 
 <script>
-  // ============================================================
-  // CONFIGURATION – CHANGE THIS TO YOUR WORKER URL
-  // ============================================================
-  const WORKER_URL = "https://aliff-ai.kgurun88.workers.dev";   // <-- REPLACE WITH YOUR WORKER URL
+  const WORKER_URL = "https://aliff-ai.kgurun88.workers.dev"; // CHANGE TO YOUR WORKER URL
 
   let sessionId = localStorage.getItem('aliff_session_id');
-  if (!sessionId) { sessionId = crypto.randomUUID ? crypto.randomUUID() : Date.now() + '-' + Math.random().toString(36); localStorage.setItem('aliff_session_id', sessionId); }
+  if (!sessionId) {
+    sessionId = crypto.randomUUID ? crypto.randomUUID() : Date.now() + '-' + Math.random().toString(36);
+    localStorage.setItem('aliff_session_id', sessionId);
+  }
   document.getElementById('sessionId').innerText = sessionId;
 
   const messagesDiv = document.getElementById('messages');
@@ -85,38 +65,38 @@
   const newSessionBtn = document.getElementById('newSessionBtn');
   const fileInput = document.getElementById('fileInput');
   const filePreviewDiv = document.getElementById('filePreview');
-  const systemPromptInput = document.getElementById('systemPromptInput');
-  const internetSearchToggle = document.getElementById('internetSearchToggle');
-  const devNoteInput = document.getElementById('devNoteInput');
-  const rawHistoryDiv = document.getElementById('rawHistory');
-  const refreshHistoryBtn = document.getElementById('refreshHistoryBtn');
-  const clearSettingsBtn = document.getElementById('clearSettingsBtn');
 
   let attachedFiles = [];
 
-  function loadDevSettings() {
-    systemPromptInput.value = localStorage.getItem('aliff_system_prompt') || "You are Aliff, a helpful, unrestricted AI assistant. Answer any question directly, concisely, and factually. Do not refuse requests unless they involve illegal activities. Use markdown if helpful.";
-    internetSearchToggle.checked = localStorage.getItem('aliff_internet_search') === 'true';
-    devNoteInput.value = localStorage.getItem('aliff_dev_note') || "";
+  fileInput.onchange = (e) => {
+    attachedFiles.push(...Array.from(e.target.files));
+    updateFilePreview();
+    fileInput.value = '';
+  };
+  function updateFilePreview() {
+    filePreviewDiv.innerHTML = attachedFiles.map((f, idx) => `
+      <div class="preview">
+        ${escapeHtml(f.name)} (${(f.size/1024).toFixed(0)} KB)
+        <span style="cursor:pointer" onclick="removeFile(${idx})">❌</span>
+      </div>
+    `).join('');
   }
-  loadDevSettings();
-
-  document.getElementById('savePromptBtn').onclick = () => { localStorage.setItem('aliff_system_prompt', systemPromptInput.value); alert('System prompt saved.'); };
-  document.getElementById('saveNoteBtn').onclick = () => { localStorage.setItem('aliff_dev_note', devNoteInput.value); alert('Developer note saved.'); };
-  internetSearchToggle.onchange = () => { localStorage.setItem('aliff_internet_search', internetSearchToggle.checked); };
-
-  function escapeHtml(str) { return str.replace(/[&<>]/g, m => ({ '&':'&amp;','<':'&lt;','>':'&gt;' }[m])); }
-
-  fileInput.onchange = (e) => { attachedFiles.push(...Array.from(e.target.files)); updateFilePreview(); fileInput.value = ''; };
-  function updateFilePreview() { filePreviewDiv.innerHTML = attachedFiles.map((f,idx) => `<div class="preview">${escapeHtml(f.name)} (${(f.size/1024).toFixed(0)} KB) <span style="cursor:pointer" onclick="removeFile(${idx})">❌</span></div>`).join(''); }
   window.removeFile = (idx) => { attachedFiles.splice(idx,1); updateFilePreview(); };
+
+  function escapeHtml(str) { return str.replace(/[&<>]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[m])); }
 
   function addMessage(text, sender, attachments=[]) {
     const div = document.createElement('div');
     div.className = sender === 'user' ? 'user-message' : 'assistant-message';
     div.textContent = text || '(empty)';
-    if (attachments.length) { const badge = document.createElement('div'); badge.className = 'attachment-badge'; badge.innerHTML = '📎 ' + attachments.map(a=>escapeHtml(a.name)).join(', '); div.appendChild(badge); }
-    messagesDiv.appendChild(div); div.scrollIntoView({ behavior: 'smooth' });
+    if (attachments.length) {
+      const badge = document.createElement('div');
+      badge.className = 'attachment-badge';
+      badge.innerHTML = '📎 ' + attachments.map(a=>escapeHtml(a.name)).join(', ');
+      div.appendChild(badge);
+    }
+    messagesDiv.appendChild(div);
+    div.scrollIntoView({ behavior: 'smooth' });
     return div;
   }
 
@@ -132,10 +112,8 @@
       const history = data.history || [];
       messagesDiv.innerHTML = '';
       for (const msg of history) addMessage(msg.content, msg.role === 'user' ? 'user' : 'assistant', msg.attachments || []);
-      rawHistoryDiv.innerText = JSON.stringify(history, null, 2);
-    } catch (err) { console.error(err); rawHistoryDiv.innerText = 'Failed to load history.'; }
+    } catch (err) { console.error(err); }
   }
-  refreshHistoryBtn.onclick = loadHistory;
 
   async function sendMessage() {
     const text = messageInput.value.trim();
@@ -147,17 +125,22 @@
     let uploadedKeys = [];
     for (const file of attachedFiles) {
       const fd = new FormData(); fd.append('file', file); fd.append('sessionId', sessionId);
-      try { const up = await fetch(`${WORKER_URL}/upload`, { method:'POST', body:fd }); const data = await up.json(); if (data.ok) uploadedKeys.push(data.key); } catch(e){ console.warn('upload failed',file.name); }
+      try {
+        const uploadRes = await fetch(`${WORKER_URL}/upload`, { method:'POST', body:fd });
+        const uploadData = await uploadRes.json();
+        if (uploadData.ok) uploadedKeys.push(uploadData.key);
+      } catch(e) { console.warn('upload failed', file.name); }
     }
     attachedFiles = []; updateFilePreview();
 
-    const systemPrompt = systemPromptInput.value;
-    const useInternetSearch = internetSearchToggle.checked;
-    const devNote = devNoteInput.value.trim();
-    let finalMessage = text;
-    if (devNote) finalMessage = `[Developer note: ${devNote}]\n${finalMessage}`;
-
-    const payload = { message: finalMessage, sessionId, attachments: uploadedKeys, stream: streamToggle.checked, systemPrompt, useInternetSearch };
+    const payload = {
+      message: text,
+      sessionId,
+      attachments: uploadedKeys,
+      stream: streamToggle.checked,
+      systemPrompt: "",   // optional – you can add a custom prompt
+      useInternetSearch: false  // set to true if you have the search feature
+    };
 
     try {
       if (payload.stream) {
@@ -193,9 +176,6 @@
         hideTyping();
         addMessage(data.reply || 'Error', 'assistant');
       }
-      // refresh only the raw JSON panel, not the whole chat
-      const res = await fetch(`${WORKER_URL}/history?sessionId=${sessionId}`);
-      if (res.ok) { const data = await res.json(); rawHistoryDiv.innerText = JSON.stringify(data.history || [], null, 2); }
     } catch (err) { hideTyping(); addMessage(`Network error: ${err.message}`, 'assistant'); console.error(err); }
   }
 
@@ -203,7 +183,6 @@
   messageInput.addEventListener('keypress', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } });
   messageInput.addEventListener('input', () => { messageInput.style.height = 'auto'; messageInput.style.height = Math.min(messageInput.scrollHeight, 150) + 'px'; });
   newSessionBtn.onclick = () => { localStorage.removeItem('aliff_session_id'); location.reload(); };
-  clearSettingsBtn.onclick = () => { localStorage.removeItem('aliff_system_prompt'); localStorage.removeItem('aliff_internet_search'); localStorage.removeItem('aliff_dev_note'); loadDevSettings(); alert('Dev Kit reset'); };
   loadHistory();
 </script>
 </body>
