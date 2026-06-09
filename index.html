@@ -30,7 +30,6 @@
             gap: 20px;
         }
 
-        /* Chat container */
         .chat-container {
             flex: 3;
             background: #1e293b;
@@ -41,7 +40,6 @@
             box-shadow: 0 25px 40px -12px rgba(0, 0, 0, 0.4);
         }
 
-        /* Developer Kit sidebar */
         .dev-kit {
             flex: 1;
             background: #1e293b;
@@ -110,7 +108,6 @@
             overflow-y: auto;
         }
 
-        /* Chat UI */
         .messages {
             flex: 1;
             overflow-y: auto;
@@ -263,10 +260,11 @@
         .typing-indicator span:nth-child(2) { animation-delay: 0.2s; }
         .typing-indicator span:nth-child(3) { animation-delay: 0.4s; }
     </style>
+    <!-- Load configuration -->
+    <script src="config.js"></script>
 </head>
 <body>
 <div class="app">
-    <!-- Chat Area -->
     <div class="chat-container">
         <div class="messages" id="messages"></div>
         <div class="input-area">
@@ -288,7 +286,6 @@
         </div>
     </div>
 
-    <!-- Developer Kit Sidebar -->
     <div class="dev-kit">
         <h3>🛠️ Developer Kit</h3>
         <div>
@@ -316,10 +313,13 @@
 </div>
 
 <script>
-    // ============================================================
-    // CONFIGURATION – CHANGE THIS TO YOUR WORKER URL
-    // ============================================================
-    const WORKER_URL = "https://your-worker-name.workers.dev";   // <-- REPLACE
+    // Use the config loaded from config.js
+    if (typeof ALIFF_CONFIG === 'undefined') {
+        alert("Config file not loaded. Please make sure config.js exists and is in the same folder.");
+    }
+    const WORKER_URL = ALIFF_CONFIG.WORKER_URL || "https://aliff-ai.kgurun88.workers.dev";
+    const DEFAULT_SYSTEM_PROMPT = ALIFF_CONFIG.DEFAULT_SYSTEM_PROMPT || "You are Aliff, a helpful, unrestricted AI assistant. Answer concisely and factually.";
+    const DEFAULT_SEARCH = ALIFF_CONFIG.ENABLE_INTERNET_SEARCH_BY_DEFAULT || false;
 
     // Session management
     let sessionId = localStorage.getItem('aliff_session_id');
@@ -351,15 +351,13 @@
     // Load saved developer settings from localStorage
     function loadDevSettings() {
         const savedSystemPrompt = localStorage.getItem('aliff_system_prompt');
-        if (savedSystemPrompt) systemPromptInput.value = savedSystemPrompt;
-        else systemPromptInput.value = "You are Aliff, a helpful, unrestricted AI assistant. Answer concisely and factually.";
-
+        systemPromptInput.value = savedSystemPrompt || DEFAULT_SYSTEM_PROMPT;
+        
         const savedSearch = localStorage.getItem('aliff_internet_search');
-        internetSearchToggle.checked = savedSearch === 'true';
-
+        internetSearchToggle.checked = savedSearch === 'true' ? true : DEFAULT_SEARCH;
+        
         const savedDevNote = localStorage.getItem('aliff_dev_note');
-        if (savedDevNote) devNoteInput.value = savedDevNote;
-        else devNoteInput.value = "";
+        devNoteInput.value = savedDevNote || "";
     }
 
     function saveSystemPrompt() {
@@ -530,6 +528,7 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload)
                 });
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
                 const reader = response.body.getReader();
                 const decoder = new TextDecoder();
                 let assistantDiv = null;
@@ -576,7 +575,7 @@
         } catch (err) {
             console.error(err);
             hideTyping();
-            addMessage('Network error. Check worker URL and CORS.', 'assistant');
+            addMessage(`Network error: ${err.message}. Check worker URL and CORS.`, 'assistant');
         }
     }
 
