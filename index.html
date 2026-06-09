@@ -31,7 +31,6 @@
       overflow: hidden;
       box-shadow: 0 25px 40px -12px rgba(0,0,0,0.4);
     }
-    /* Chat container */
     .chat-container {
       flex: 3;
       display: flex;
@@ -39,7 +38,6 @@
       background: #1e293b;
       min-width: 0;
     }
-    /* Developer kit */
     .dev-kit {
       flex: 1;
       background: #0f172a;
@@ -351,7 +349,7 @@
     updateFilePreview();
   };
 
-  // Add message to UI
+  // Add message to UI (returns the div)
   function addMessage(text, sender, attachments = []) {
     const div = document.createElement('div');
     div.className = sender === 'user' ? 'user-message' : 'assistant-message';
@@ -380,7 +378,7 @@
     if (typingDiv) { typingDiv.remove(); typingDiv = null; }
   }
 
-  // Load conversation history from worker
+  // Load conversation history from worker (only once on page load, and manually via Refresh button)
   async function loadHistory() {
     try {
       const res = await fetch(`${WORKER_URL}/history?sessionId=${sessionId}`);
@@ -399,7 +397,7 @@
   }
   refreshHistoryBtn.onclick = loadHistory;
 
-  // Send message
+  // Send message – NO automatic reload of history
   async function sendMessage() {
     const text = messageInput.value.trim();
     if (!text && attachedFiles.length === 0) return;
@@ -489,12 +487,25 @@
         hideTyping();
         addMessage(data.reply || 'Error: No reply', 'assistant');
       }
-      // Reload history to keep UI in sync (will also update raw history)
-      await loadHistory();
+      // DO NOT reload full history here – it would wipe the newly added messages.
+      // Instead, just refresh the raw JSON panel (optional)
+      refreshRawHistoryOnly();
     } catch (err) {
       hideTyping();
       addMessage(`Network error: ${err.message}`, 'assistant');
       console.error(err);
+    }
+  }
+
+  // Helper to update only the raw JSON panel without touching the chat messages
+  async function refreshRawHistoryOnly() {
+    try {
+      const res = await fetch(`${WORKER_URL}/history?sessionId=${sessionId}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      rawHistoryDiv.innerText = JSON.stringify(data.history || [], null, 2);
+    } catch (err) {
+      rawHistoryDiv.innerText = 'Error loading history';
     }
   }
 
@@ -524,7 +535,7 @@
     localStorage.setItem('aliff_internet_search', internetSearchToggle.checked);
   };
 
-  // Initial load
+  // Initial load of history (only once)
   loadHistory();
 </script>
 </body>
