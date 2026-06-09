@@ -1,213 +1,324 @@
-// ============================================================
-// ALIFF PROXY – FINAL WORKER
-// Features: KV history, R2 uploads, streaming, search, developer kit
-// ============================================================
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aliff – AI Assistant</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; background: #0f172a; color: #e2e8f0; margin: 0; padding: 20px; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+        .app { max-width: 1200px; width: 100%; display: flex; gap: 20px; flex-wrap: wrap; }
+        .chat-container { flex: 2; background: #1e293b; border-radius: 28px; display: flex; flex-direction: column; overflow: hidden; height: 85vh; min-width: 280px; }
+        .dev-kit { flex: 1; background: #1e293b; border-radius: 28px; padding: 20px; overflow-y: auto; min-width: 260px; }
+        .messages { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 12px; }
+        .user-message, .assistant-message { max-width: 85%; padding: 10px 16px; border-radius: 24px; line-height: 1.4; word-break: break-word; }
+        .user-message { align-self: flex-end; background: #3b82f6; color: white; }
+        .assistant-message { align-self: flex-start; background: #334155; }
+        .attachment-badge { font-size: 11px; margin-top: 6px; opacity: 0.8; }
+        .input-area { padding: 16px; background: #0f172a; border-top: 1px solid #334155; }
+        .file-row { margin-bottom: 10px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+        .file-label { background: #334155; padding: 6px 12px; border-radius: 28px; cursor: pointer; font-size: 12px; display: inline-block; }
+        .file-preview { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+        .preview { background: #0f172a; padding: 4px 8px; border-radius: 20px; font-size: 11px; display: inline-flex; align-items: center; gap: 6px; }
+        .input-row { display: flex; gap: 10px; align-items: flex-end; }
+        textarea { flex: 1; background: #0f172a; border: 1px solid #334155; border-radius: 28px; padding: 12px 16px; color: white; font-size: 14px; font-family: inherit; resize: none; outline: none; }
+        button { background: #3b82f6; border: none; padding: 12px 24px; border-radius: 28px; color: white; font-weight: bold; cursor: pointer; transition: background 0.1s; }
+        button:hover { background: #2563eb; }
+        .session-info { padding: 8px 16px; background: #0f172a; font-size: 12px; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; border-top: 1px solid #334155; }
+        .new-session { background: #334155; border: none; padding: 4px 12px; border-radius: 20px; cursor: pointer; font-size: 11px; }
+        .typing-indicator { display: inline-flex; align-items: center; gap: 4px; background: #334155; padding: 10px 16px; border-radius: 24px; align-self: flex-start; }
+        .typing-indicator span { width: 8px; height: 8px; background: #94a3b8; border-radius: 50%; animation: pulse 1.2s infinite; }
+        @keyframes pulse { 0%,100%{opacity:0.3} 50%{opacity:1} }
+        .typing-indicator span:nth-child(2) { animation-delay: 0.2s; }
+        .typing-indicator span:nth-child(3) { animation-delay: 0.4s; }
+        .dev-kit h3 { font-size: 1rem; margin-bottom: 12px; border-bottom: 1px solid #334155; padding-bottom: 6px; }
+        .dev-kit textarea, .dev-kit input { width: 100%; background: #0f172a; border: 1px solid #334155; border-radius: 16px; padding: 8px 10px; color: #e2e8f0; font-family: monospace; font-size: 12px; margin-bottom: 12px; }
+        .dev-kit label { display: flex; align-items: center; gap: 8px; font-size: 13px; margin-bottom: 10px; }
+        .dev-kit button { width: 100%; margin-top: 6px; background: #2563eb; padding: 8px; font-size: 12px; }
+        .raw-json { background: #0f172a; border-radius: 12px; padding: 8px; font-family: monospace; font-size: 10px; white-space: pre-wrap; max-height: 200px; overflow-y: auto; margin-top: 8px; }
+    </style>
+    <script src="config.js"></script>
+</head>
+<body>
+<div class="app">
+    <div class="chat-container">
+        <div class="messages" id="messages"></div>
+        <div class="input-area">
+            <div class="file-row">
+                <label class="file-label">
+                    <input type="file" id="fileInput" style="display:none" multiple>📎 Attach files
+                </label>
+                <div id="filePreview" class="file-preview"></div>
+            </div>
+            <div class="input-row">
+                <textarea id="messageInput" rows="1" placeholder="Ask Aliff anything..."></textarea>
+                <button id="sendBtn">Send</button>
+            </div>
+        </div>
+        <div class="session-info">
+            <span>Session: <span id="sessionId"></span></span>
+            <button class="new-session" id="newSessionBtn">New conversation</button>
+            <label><input type="checkbox" id="streamToggle" checked> Stream</label>
+        </div>
+    </div>
+    <div class="dev-kit">
+        <h3>🛠️ Developer Kit</h3>
+        <label>System Prompt</label>
+        <textarea id="systemPromptInput" rows="2"></textarea>
+        <button id="savePromptBtn">Save prompt</button>
+        <label><input type="checkbox" id="internetSearchToggle"> Internet search</label>
+        <label>Developer note (prepended to each message)</label>
+        <textarea id="devNoteInput" rows="2"></textarea>
+        <button id="saveNoteBtn">Save note</button>
+        <h3>📜 Previous Chats (JSON)</h3>
+        <div id="rawHistory" class="raw-json">Loading...</div>
+        <button id="refreshHistoryBtn">Refresh</button>
+        <button id="clearSettingsBtn" style="background:#dc2626;">Reset Dev Kit</button>
+    </div>
+</div>
 
-const DEEPSEEK_URL = "https://api.deepseek.com/v1/chat/completions";
-const SEARX_INSTANCES = ["https://searx.be", "https://search.bus-hit.me"];
+<script>
+    if (typeof ALIFF_CONFIG === 'undefined') {
+        alert("config.js not found. Make sure it exists in the same folder.");
+    }
+    const WORKER_URL = ALIFF_CONFIG.WORKER_URL || "https://aliff-ai.kgurun88.workers.dev";
 
-function corsHeaders(request) {
-  const origin = request.headers.get("Origin") || "*";
-  return {
-    "Access-Control-Allow-Origin": origin,
-    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, X-Session-Id",
-    "Vary": "Origin"
-  };
-}
+    // Session ID
+    let sessionId = localStorage.getItem('aliff_session_id');
+    if (!sessionId) {
+        sessionId = crypto.randomUUID ? crypto.randomUUID() : Date.now() + '-' + Math.random().toString(36);
+        localStorage.setItem('aliff_session_id', sessionId);
+    }
+    document.getElementById('sessionId').innerText = sessionId;
 
-// ---------- KV history ----------
-async function getHistory(env, sessionId) {
-  const key = `history:${sessionId}`;
-  const data = await env.ALIFF_MEMORY.get(key);
-  return data ? JSON.parse(data) : [];
-}
+    // DOM elements
+    const messagesDiv = document.getElementById('messages');
+    const messageInput = document.getElementById('messageInput');
+    const sendBtn = document.getElementById('sendBtn');
+    const streamToggle = document.getElementById('streamToggle');
+    const newSessionBtn = document.getElementById('newSessionBtn');
+    const fileInput = document.getElementById('fileInput');
+    const filePreviewDiv = document.getElementById('filePreview');
+    const systemPromptInput = document.getElementById('systemPromptInput');
+    const internetSearchToggle = document.getElementById('internetSearchToggle');
+    const devNoteInput = document.getElementById('devNoteInput');
+    const rawHistoryDiv = document.getElementById('rawHistory');
+    const refreshHistoryBtn = document.getElementById('refreshHistoryBtn');
+    const clearSettingsBtn = document.getElementById('clearSettingsBtn');
 
-async function saveHistory(env, sessionId, messages) {
-  const key = `history:${sessionId}`;
-  await env.ALIFF_MEMORY.put(key, JSON.stringify(messages), { expirationTtl: 86400 * 7 });
-}
+    let attachedFiles = [];
 
-// ---------- DeepSeek API ----------
-async function callDeepSeek(env, messages, stream = false) {
-  const response = await fetch(DEEPSEEK_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${env.DEEPSEEK_API_KEY}`
-    },
-    body: JSON.stringify({
-      model: "deepseek-chat",
-      messages,
-      stream,
-      temperature: 0.7,
-      max_tokens: 2000,
-      safe_mode: env.SAFE_MODE === "true"
-    })
-  });
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`DeepSeek error ${response.status}: ${errorText}`);
-  }
-  return response;
-}
+    // Load developer settings from localStorage
+    function loadSettings() {
+        systemPromptInput.value = localStorage.getItem('aliff_system_prompt') || "You are Aliff, a helpful, factual AI assistant. Answer concisely.";
+        internetSearchToggle.checked = localStorage.getItem('aliff_internet_search') === 'true';
+        devNoteInput.value = localStorage.getItem('aliff_dev_note') || "";
+    }
+    loadSettings();
 
-// ---------- Internet search (SearXNG) ----------
-async function searchInternet(query) {
-  const params = new URLSearchParams({ q: query, format: "json" });
-  for (const instance of SEARX_INSTANCES) {
-    try {
-      const url = `${instance}/search?${params}`;
-      const res = await fetch(url, { headers: { "User-Agent": "Aliff/1.0" } });
-      if (!res.ok) continue;
-      const data = await res.json();
-      const results = data.results || [];
-      if (results.length) {
-        return results.slice(0, 2).map(r => `- ${r.title}\n  ${r.url}\n  ${r.content?.slice(0, 300)}`).join("\n\n");
-      }
-    } catch (e) {}
-  }
-  return null;
-}
-
-export default {
-  async fetch(request, env, ctx) {
-    const url = new URL(request.url);
-    const path = url.pathname;
-
-    // CORS preflight
-    if (request.method === "OPTIONS") {
-      return new Response(null, { status: 204, headers: corsHeaders(request) });
+    // Helper: escape HTML
+    function escapeHtml(str) {
+        return str.replace(/[&<>]/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[m]));
     }
 
-    // Health check
-    if (request.method === "GET" && path === "/health") {
-      return new Response(JSON.stringify({ status: "ok" }), { headers: corsHeaders(request) });
-    }
-
-    // 1. File upload to R2
-    if (request.method === "POST" && path === "/upload") {
-      try {
-        const formData = await request.formData();
-        const file = formData.get("file");
-        const sessionId = formData.get("sessionId");
-        if (!file || !sessionId) throw new Error("Missing file or sessionId");
-        const key = `${sessionId}/${Date.now()}-${file.name}`;
-        await env.ATTACHMENTS.put(key, file.stream(), { httpMetadata: { contentType: file.type } });
-        return new Response(JSON.stringify({ ok: true, key }), { headers: corsHeaders(request) });
-      } catch (err) {
-        return new Response(JSON.stringify({ error: err.message }), { status: 500, headers: corsHeaders(request) });
-      }
-    }
-
-    // 2. Get conversation history
-    if (request.method === "GET" && path === "/history") {
-      const sessionId = url.searchParams.get("sessionId");
-      if (!sessionId) return new Response(JSON.stringify({ error: "Missing sessionId" }), { status: 400, headers: corsHeaders(request) });
-      const history = await getHistory(env, sessionId);
-      return new Response(JSON.stringify({ history }), { headers: corsHeaders(request) });
-    }
-
-    // 3. Chat endpoint
-    if (request.method === "POST" && path === "/chat") {
-      try {
-        const body = await request.json();
-        let { message, sessionId, attachments = [], stream = true, systemPrompt, useInternetSearch } = body;
-
-        if (!message && attachments.length === 0) {
-          return new Response(JSON.stringify({ error: "No message or attachments" }), { status: 400, headers: corsHeaders(request) });
+    // Add message to UI
+    function addMessage(text, sender, attachments = []) {
+        const div = document.createElement('div');
+        div.className = sender === 'user' ? 'user-message' : 'assistant-message';
+        div.textContent = text || "(empty)";
+        if (attachments.length) {
+            const badge = document.createElement('div');
+            badge.className = 'attachment-badge';
+            badge.innerHTML = '📎 ' + attachments.map(a => escapeHtml(a.name)).join(', ');
+            div.appendChild(badge);
         }
+        messagesDiv.appendChild(div);
+        div.scrollIntoView({ behavior: 'smooth' });
+        return div;
+    }
 
-        // Load existing conversation
-        let conversation = await getHistory(env, sessionId);
+    let typingDiv = null;
+    function showTyping() {
+        if (typingDiv) return;
+        typingDiv = document.createElement('div');
+        typingDiv.className = 'typing-indicator';
+        typingDiv.innerHTML = '<span></span><span></span><span></span>';
+        messagesDiv.appendChild(typingDiv);
+        typingDiv.scrollIntoView({ behavior: 'smooth' });
+    }
+    function hideTyping() {
+        if (typingDiv) { typingDiv.remove(); typingDiv = null; }
+    }
 
-        // Internet search
-        let searchContext = "";
-        if (useInternetSearch && message) {
-          const results = await searchInternet(message);
-          if (results) searchContext = `\n\n[Internet search results]\n${results}\n`;
-        }
-
-        let userContent = message;
-        if (attachments.length) userContent += `\n\n[Attachments: ${attachments.join(", ")}]`;
-        if (searchContext) userContent += searchContext;
-
-        const finalSystemPrompt = systemPrompt || "You are Aliff, a helpful, factual AI assistant. Keep answers short and clear.";
-
-        const apiMessages = [
-          { role: "system", content: finalSystemPrompt },
-          ...conversation,
-          { role: "user", content: userContent }
-        ];
-
-        if (stream) {
-          const deepseekRes = await callDeepSeek(env, apiMessages, true);
-          const { readable, writable } = new TransformStream();
-          const writer = writable.getWriter();
-          const encoder = new TextEncoder();
-
-          let fullReply = "";
-          (async () => {
-            const reader = deepseekRes.body.getReader();
-            const decoder = new TextDecoder();
-            try {
-              while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-                const chunk = decoder.decode(value);
-                const lines = chunk.split("\n");
-                for (const line of lines) {
-                  if (line.startsWith("data: ")) {
-                    const data = line.slice(6);
-                    if (data === "[DONE]") {
-                      await writer.write(encoder.encode(`data: {"token":"","done":true}\n\n`));
-                      break;
-                    }
-                    try {
-                      const parsed = JSON.parse(data);
-                      const token = parsed.choices?.[0]?.delta?.content || "";
-                      if (token) {
-                        fullReply += token;
-                        await writer.write(encoder.encode(`data: ${JSON.stringify({ token })}\n\n`));
-                      }
-                    } catch (e) {}
-                  }
-                }
-              }
-              const newConversation = [
-                ...conversation,
-                { role: "user", content: userContent },
-                { role: "assistant", content: fullReply }
-              ];
-              await saveHistory(env, sessionId, newConversation);
-            } catch (err) {
-              console.error("Streaming error", err);
-            } finally {
-              await writer.close();
+    // Load conversation history from worker
+    async function loadHistory() {
+        try {
+            const res = await fetch(`${WORKER_URL}/history?sessionId=${sessionId}`);
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const data = await res.json();
+            const history = data.history || [];
+            messagesDiv.innerHTML = '';
+            for (const msg of history) {
+                addMessage(msg.content, msg.role === 'user' ? 'user' : 'assistant', msg.attachments || []);
             }
-          })();
-
-          return new Response(readable, {
-            headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", ...corsHeaders(request) }
-          });
-        } else {
-          const deepseekRes = await callDeepSeek(env, apiMessages, false);
-          const data = await deepseekRes.json();
-          const reply = data.choices?.[0]?.message?.content || "Sorry, I couldn't generate a response.";
-          const newConversation = [
-            ...conversation,
-            { role: "user", content: userContent },
-            { role: "assistant", content: reply }
-          ];
-          await saveHistory(env, sessionId, newConversation);
-          return new Response(JSON.stringify({ reply }), { headers: corsHeaders(request) });
+            rawHistoryDiv.innerText = JSON.stringify(history, null, 2);
+        } catch (err) {
+            console.error(err);
+            rawHistoryDiv.innerText = 'Failed to load history. Check worker URL and CORS.';
         }
-      } catch (err) {
-        console.error(err);
-        return new Response(JSON.stringify({ error: err.message }), { status: 500, headers: corsHeaders(request) });
-      }
     }
 
-    return new Response("Not found", { status: 404, headers: corsHeaders(request) });
-  }
-};
+    refreshHistoryBtn.onclick = loadHistory;
+
+    // File attachment handling
+    fileInput.onchange = (e) => {
+        attachedFiles.push(...Array.from(e.target.files));
+        filePreviewDiv.innerHTML = attachedFiles.map((f, idx) => `<div class="preview">${escapeHtml(f.name)} <span style="cursor:pointer" onclick="removeFile(${idx})">❌</span></div>`).join('');
+        fileInput.value = '';
+    };
+    window.removeFile = (idx) => {
+        attachedFiles.splice(idx, 1);
+        filePreviewDiv.innerHTML = attachedFiles.map((f, idx) => `<div class="preview">${escapeHtml(f.name)} <span onclick="removeFile(${idx})">❌</span></div>`).join('');
+    };
+
+    // Send message
+    async function sendMessage() {
+        const text = messageInput.value.trim();
+        if (!text && attachedFiles.length === 0) return;
+
+        // Show user message immediately
+        addMessage(text || '(attachment only)', 'user', attachedFiles.map(f => ({ name: f.name })));
+        messageInput.value = '';
+        messageInput.style.height = 'auto';
+        showTyping();
+
+        // Upload attachments to R2
+        let uploadedKeys = [];
+        for (const file of attachedFiles) {
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('sessionId', sessionId);
+            try {
+                const uploadRes = await fetch(`${WORKER_URL}/upload`, { method: 'POST', body: formData });
+                const uploadData = await uploadRes.json();
+                if (uploadData.ok) uploadedKeys.push(uploadData.key);
+            } catch (err) { console.warn('Upload failed', file.name, err); }
+        }
+        attachedFiles = [];
+        filePreviewDiv.innerHTML = '';
+
+        // Build payload
+        const systemPrompt = systemPromptInput.value;
+        const useInternetSearch = internetSearchToggle.checked;
+        const devNote = devNoteInput.value.trim();
+        let finalMessage = text;
+        if (devNote) finalMessage = `[Developer note: ${devNote}]\n${finalMessage}`;
+
+        const payload = {
+            message: finalMessage,
+            sessionId,
+            attachments: uploadedKeys,
+            stream: streamToggle.checked,
+            systemPrompt,
+            useInternetSearch
+        };
+
+        try {
+            if (payload.stream) {
+                const response = await fetch(`${WORKER_URL}/chat`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let assistantDiv = null;
+                let fullText = '';
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    const chunk = decoder.decode(value);
+                    const lines = chunk.split('\n');
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            const data = line.slice(6);
+                            if (data === '[DONE]') break;
+                            try {
+                                const parsed = JSON.parse(data);
+                                const token = parsed.token || '';
+                                if (token) {
+                                    fullText += token;
+                                    if (!assistantDiv) {
+                                        assistantDiv = addMessage(fullText, 'assistant');
+                                    } else {
+                                        assistantDiv.textContent = fullText;
+                                        assistantDiv.scrollIntoView({ behavior: 'smooth' });
+                                    }
+                                }
+                            } catch (e) {}
+                        }
+                    }
+                }
+                hideTyping();
+            } else {
+                const response = await fetch(`${WORKER_URL}/chat`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const data = await response.json();
+                hideTyping();
+                addMessage(data.reply || 'Error', 'assistant');
+            }
+            // Reload history to show updated conversation
+            await loadHistory();
+        } catch (err) {
+            hideTyping();
+            addMessage(`Network error: ${err.message}`, 'assistant');
+            console.error(err);
+        }
+    }
+
+    sendBtn.onclick = sendMessage;
+    messageInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            sendMessage();
+        }
+    });
+    messageInput.addEventListener('input', () => {
+        messageInput.style.height = 'auto';
+        messageInput.style.height = Math.min(messageInput.scrollHeight, 150) + 'px';
+    });
+
+    newSessionBtn.onclick = () => {
+        localStorage.removeItem('aliff_session_id');
+        location.reload();
+    };
+
+    // Save settings
+    document.getElementById('savePromptBtn').onclick = () => {
+        localStorage.setItem('aliff_system_prompt', systemPromptInput.value);
+        alert('System prompt saved');
+    };
+    document.getElementById('saveNoteBtn').onclick = () => {
+        localStorage.setItem('aliff_dev_note', devNoteInput.value);
+        alert('Developer note saved');
+    };
+    internetSearchToggle.onchange = () => {
+        localStorage.setItem('aliff_internet_search', internetSearchToggle.checked);
+    };
+    clearSettingsBtn.onclick = () => {
+        localStorage.removeItem('aliff_system_prompt');
+        localStorage.removeItem('aliff_dev_note');
+        localStorage.removeItem('aliff_internet_search');
+        loadSettings();
+        alert('Developer Kit settings reset');
+    };
+
+    // Initial load
+    loadHistory();
+</script>
+</body>
+</html>
