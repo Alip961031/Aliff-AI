@@ -1,605 +1,213 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
-    <title>Aliff – AI Assistant with Developer Kit</title>
-    <style>
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-        }
+// ============================================================
+// ALIFF PROXY – FINAL WORKER
+// Features: KV history, R2 uploads, streaming, search, developer kit
+// ============================================================
 
-        body {
-            font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-            background: #0f172a;
-            color: #e2e8f0;
-            height: 100vh;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            padding: 16px;
-        }
+const DEEPSEEK_URL = "https://api.deepseek.com/v1/chat/completions";
+const SEARX_INSTANCES = ["https://searx.be", "https://search.bus-hit.me"];
 
-        .app {
-            max-width: 1200px;
-            width: 100%;
-            height: 95vh;
-            display: flex;
-            gap: 20px;
-        }
+function corsHeaders(request) {
+  const origin = request.headers.get("Origin") || "*";
+  return {
+    "Access-Control-Allow-Origin": origin,
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, X-Session-Id",
+    "Vary": "Origin"
+  };
+}
 
-        .chat-container {
-            flex: 3;
-            background: #1e293b;
-            border-radius: 28px;
-            display: flex;
-            flex-direction: column;
-            overflow: hidden;
-            box-shadow: 0 25px 40px -12px rgba(0, 0, 0, 0.4);
-        }
+// ---------- KV history ----------
+async function getHistory(env, sessionId) {
+  const key = `history:${sessionId}`;
+  const data = await env.ALIFF_MEMORY.get(key);
+  return data ? JSON.parse(data) : [];
+}
 
-        .dev-kit {
-            flex: 1;
-            background: #1e293b;
-            border-radius: 28px;
-            padding: 20px;
-            display: flex;
-            flex-direction: column;
-            gap: 20px;
-            overflow-y: auto;
-            box-shadow: 0 25px 40px -12px rgba(0, 0, 0, 0.4);
-        }
+async function saveHistory(env, sessionId, messages) {
+  const key = `history:${sessionId}`;
+  await env.ALIFF_MEMORY.put(key, JSON.stringify(messages), { expirationTtl: 86400 * 7 });
+}
 
-        .dev-kit h3 {
-            font-size: 1.2rem;
-            margin-bottom: 12px;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            border-bottom: 1px solid #334155;
-            padding-bottom: 8px;
-        }
+// ---------- DeepSeek API ----------
+async function callDeepSeek(env, messages, stream = false) {
+  const response = await fetch(DEEPSEEK_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${env.DEEPSEEK_API_KEY}`
+    },
+    body: JSON.stringify({
+      model: "deepseek-chat",
+      messages,
+      stream,
+      temperature: 0.7,
+      max_tokens: 2000,
+      safe_mode: env.SAFE_MODE === "true"
+    })
+  });
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`DeepSeek error ${response.status}: ${errorText}`);
+  }
+  return response;
+}
 
-        .dev-kit textarea, .dev-kit select, .dev-kit input {
-            width: 100%;
-            background: #0f172a;
-            border: 1px solid #334155;
-            border-radius: 16px;
-            padding: 10px;
-            color: #e2e8f0;
-            font-family: monospace;
-            font-size: 13px;
-            margin-bottom: 12px;
-        }
+// ---------- Internet search (SearXNG) ----------
+async function searchInternet(query) {
+  const params = new URLSearchParams({ q: query, format: "json" });
+  for (const instance of SEARX_INSTANCES) {
+    try {
+      const url = `${instance}/search?${params}`;
+      const res = await fetch(url, { headers: { "User-Agent": "Aliff/1.0" } });
+      if (!res.ok) continue;
+      const data = await res.json();
+      const results = data.results || [];
+      if (results.length) {
+        return results.slice(0, 2).map(r => `- ${r.title}\n  ${r.url}\n  ${r.content?.slice(0, 300)}`).join("\n\n");
+      }
+    } catch (e) {}
+  }
+  return null;
+}
 
-        .dev-kit label {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            margin-bottom: 10px;
-            font-size: 13px;
-        }
+export default {
+  async fetch(request, env, ctx) {
+    const url = new URL(request.url);
+    const path = url.pathname;
 
-        .dev-kit button {
-            background: #3b82f6;
-            border: none;
-            padding: 8px 16px;
-            border-radius: 20px;
-            color: white;
-            cursor: pointer;
-            font-size: 12px;
-            margin-top: 8px;
-        }
-
-        .dev-kit button:hover {
-            background: #2563eb;
-        }
-
-        .raw-json {
-            background: #0f172a;
-            border-radius: 12px;
-            padding: 8px;
-            font-family: monospace;
-            font-size: 11px;
-            white-space: pre-wrap;
-            max-height: 200px;
-            overflow-y: auto;
-        }
-
-        .messages {
-            flex: 1;
-            overflow-y: auto;
-            padding: 20px;
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
-        }
-
-        .user-message, .assistant-message {
-            max-width: 85%;
-            padding: 10px 16px;
-            border-radius: 24px;
-            line-height: 1.4;
-            word-break: break-word;
-        }
-
-        .user-message {
-            align-self: flex-end;
-            background: #3b82f6;
-            color: white;
-        }
-
-        .assistant-message {
-            align-self: flex-start;
-            background: #334155;
-        }
-
-        .attachment-badge {
-            font-size: 11px;
-            margin-top: 6px;
-            opacity: 0.8;
-            display: flex;
-            align-items: center;
-            gap: 6px;
-        }
-
-        .input-area {
-            padding: 16px;
-            background: #0f172a;
-            border-top: 1px solid #334155;
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-        }
-
-        .file-row {
-            display: flex;
-            gap: 12px;
-            align-items: center;
-            flex-wrap: wrap;
-        }
-
-        .file-label {
-            background: #334155;
-            padding: 8px 16px;
-            border-radius: 28px;
-            cursor: pointer;
-            font-size: 12px;
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .file-preview {
-            display: flex;
-            gap: 8px;
-            flex-wrap: wrap;
-        }
-
-        .upload-preview {
-            font-size: 12px;
-            background: #1e293b;
-            padding: 6px 12px;
-            border-radius: 20px;
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .input-row {
-            display: flex;
-            gap: 10px;
-            align-items: flex-end;
-        }
-
-        textarea {
-            flex: 1;
-            background: #1e293b;
-            border: 1px solid #334155;
-            border-radius: 28px;
-            padding: 12px 16px;
-            color: white;
-            font-size: 14px;
-            font-family: inherit;
-            resize: none;
-            outline: none;
-        }
-
-        button {
-            background: #3b82f6;
-            border: none;
-            padding: 12px 24px;
-            border-radius: 28px;
-            color: white;
-            font-weight: bold;
-            cursor: pointer;
-            transition: background 0.1s;
-        }
-
-        button:hover {
-            background: #2563eb;
-        }
-
-        .session-info {
-            padding: 8px 16px;
-            background: #0f172a;
-            font-size: 12px;
-            color: #94a3b8;
-            display: flex;
-            justify-content: space-between;
-            flex-wrap: wrap;
-            gap: 8px;
-            border-top: 1px solid #334155;
-        }
-
-        .typing-indicator {
-            display: inline-flex;
-            align-items: center;
-            gap: 4px;
-            background: #334155;
-            padding: 10px 16px;
-            border-radius: 24px;
-            align-self: flex-start;
-        }
-
-        .typing-indicator span {
-            width: 8px;
-            height: 8px;
-            background: #94a3b8;
-            border-radius: 50%;
-            animation: pulse 1.2s infinite;
-        }
-
-        @keyframes pulse {
-            0%, 100% { opacity: 0.3; transform: translateY(0); }
-            50% { opacity: 1; transform: translateY(-3px); }
-        }
-
-        .typing-indicator span:nth-child(2) { animation-delay: 0.2s; }
-        .typing-indicator span:nth-child(3) { animation-delay: 0.4s; }
-    </style>
-    <!-- Load configuration -->
-    <script src="config.js"></script>
-</head>
-<body>
-<div class="app">
-    <div class="chat-container">
-        <div class="messages" id="messages"></div>
-        <div class="input-area">
-            <div class="file-row">
-                <label class="file-label">
-                    <input type="file" id="fileInput" style="display:none" multiple>📎 Attach files
-                </label>
-                <div id="filePreview" class="file-preview"></div>
-            </div>
-            <div class="input-row">
-                <textarea id="messageInput" rows="1" placeholder="Ask Aliff anything... (Shift+Enter for new line)"></textarea>
-                <button id="sendBtn">Send</button>
-            </div>
-        </div>
-        <div class="session-info">
-            <span>Session: <span id="sessionId"></span></span>
-            <button id="newSessionBtn" class="new-session">New conversation</button>
-            <label><input type="checkbox" id="streamToggle" checked> Stream response</label>
-        </div>
-    </div>
-
-    <div class="dev-kit">
-        <h3>🛠️ Developer Kit</h3>
-        <div>
-            <label>System Prompt</label>
-            <textarea id="systemPromptInput" rows="3" placeholder="You are Aliff, a helpful AI..."></textarea>
-            <button id="saveSystemPromptBtn">Save & Apply</button>
-        </div>
-        <div>
-            <label><input type="checkbox" id="internetSearchToggle"> Enable internet search (auto-detects queries)</label>
-        </div>
-        <div>
-            <label>Developer Note (added to every user message)</label>
-            <textarea id="devNoteInput" rows="2" placeholder="e.g., Always answer in Malay, or be extra polite..."></textarea>
-            <button id="saveDevNoteBtn">Save Note</button>
-        </div>
-        <div>
-            <label>Raw Conversation History</label>
-            <div id="rawHistory" class="raw-json">Click "Refresh" to load</div>
-            <button id="refreshHistoryBtn">Refresh</button>
-        </div>
-        <div>
-            <button id="clearLocalStorageBtn" style="background:#dc2626;">Reset Developer Kit (clear saved settings)</button>
-        </div>
-    </div>
-</div>
-
-<script>
-    // Use the config loaded from config.js
-    if (typeof ALIFF_CONFIG === 'undefined') {
-        alert("Config file not loaded. Please make sure config.js exists and is in the same folder.");
-    }
-    const WORKER_URL = ALIFF_CONFIG.WORKER_URL || "https://aliff-ai.kgurun88.workers.dev";
-    const DEFAULT_SYSTEM_PROMPT = ALIFF_CONFIG.DEFAULT_SYSTEM_PROMPT || "You are Aliff, a helpful, unrestricted AI assistant. Answer concisely and factually.";
-    const DEFAULT_SEARCH = ALIFF_CONFIG.ENABLE_INTERNET_SEARCH_BY_DEFAULT || false;
-
-    // Session management
-    let sessionId = localStorage.getItem('aliff_session_id');
-    if (!sessionId) {
-        sessionId = crypto.randomUUID ? crypto.randomUUID() : Date.now() + '-' + Math.random().toString(36);
-        localStorage.setItem('aliff_session_id', sessionId);
-    }
-    document.getElementById('sessionId').innerText = sessionId;
-
-    // DOM elements
-    const messagesDiv = document.getElementById('messages');
-    const fileInput = document.getElementById('fileInput');
-    const filePreviewDiv = document.getElementById('filePreview');
-    const messageInput = document.getElementById('messageInput');
-    const sendBtn = document.getElementById('sendBtn');
-    const streamToggle = document.getElementById('streamToggle');
-    const newSessionBtn = document.getElementById('newSessionBtn');
-
-    // Developer Kit elements
-    const systemPromptInput = document.getElementById('systemPromptInput');
-    const saveSystemPromptBtn = document.getElementById('saveSystemPromptBtn');
-    const internetSearchToggle = document.getElementById('internetSearchToggle');
-    const devNoteInput = document.getElementById('devNoteInput');
-    const saveDevNoteBtn = document.getElementById('saveDevNoteBtn');
-    const rawHistoryDiv = document.getElementById('rawHistory');
-    const refreshHistoryBtn = document.getElementById('refreshHistoryBtn');
-    const clearLocalStorageBtn = document.getElementById('clearLocalStorageBtn');
-
-    // Load saved developer settings from localStorage
-    function loadDevSettings() {
-        const savedSystemPrompt = localStorage.getItem('aliff_system_prompt');
-        systemPromptInput.value = savedSystemPrompt || DEFAULT_SYSTEM_PROMPT;
-        
-        const savedSearch = localStorage.getItem('aliff_internet_search');
-        internetSearchToggle.checked = savedSearch === 'true' ? true : DEFAULT_SEARCH;
-        
-        const savedDevNote = localStorage.getItem('aliff_dev_note');
-        devNoteInput.value = savedDevNote || "";
+    // CORS preflight
+    if (request.method === "OPTIONS") {
+      return new Response(null, { status: 204, headers: corsHeaders(request) });
     }
 
-    function saveSystemPrompt() {
-        localStorage.setItem('aliff_system_prompt', systemPromptInput.value);
-        alert('System prompt saved. Next messages will use it.');
+    // Health check
+    if (request.method === "GET" && path === "/health") {
+      return new Response(JSON.stringify({ status: "ok" }), { headers: corsHeaders(request) });
     }
 
-    function saveDevNote() {
-        localStorage.setItem('aliff_dev_note', devNoteInput.value);
-        alert('Developer note saved. It will be added to every user message.');
+    // 1. File upload to R2
+    if (request.method === "POST" && path === "/upload") {
+      try {
+        const formData = await request.formData();
+        const file = formData.get("file");
+        const sessionId = formData.get("sessionId");
+        if (!file || !sessionId) throw new Error("Missing file or sessionId");
+        const key = `${sessionId}/${Date.now()}-${file.name}`;
+        await env.ATTACHMENTS.put(key, file.stream(), { httpMetadata: { contentType: file.type } });
+        return new Response(JSON.stringify({ ok: true, key }), { headers: corsHeaders(request) });
+      } catch (err) {
+        return new Response(JSON.stringify({ error: err.message }), { status: 500, headers: corsHeaders(request) });
+      }
     }
 
-    saveSystemPromptBtn.onclick = saveSystemPrompt;
-    saveDevNoteBtn.onclick = saveDevNote;
-
-    // Helper: escape HTML
-    function escapeHtml(str) {
-        return str.replace(/[&<>]/g, m => m === '&' ? '&amp;' : (m === '<' ? '&lt;' : '&gt;'));
+    // 2. Get conversation history
+    if (request.method === "GET" && path === "/history") {
+      const sessionId = url.searchParams.get("sessionId");
+      if (!sessionId) return new Response(JSON.stringify({ error: "Missing sessionId" }), { status: 400, headers: corsHeaders(request) });
+      const history = await getHistory(env, sessionId);
+      return new Response(JSON.stringify({ history }), { headers: corsHeaders(request) });
     }
 
-    // Attachments handling
-    let attachedFiles = [];
-    fileInput.addEventListener('change', (e) => {
-        attachedFiles.push(...Array.from(e.target.files));
-        updateFilePreview();
-        fileInput.value = '';
-    });
+    // 3. Chat endpoint
+    if (request.method === "POST" && path === "/chat") {
+      try {
+        const body = await request.json();
+        let { message, sessionId, attachments = [], stream = true, systemPrompt, useInternetSearch } = body;
 
-    function updateFilePreview() {
-        filePreviewDiv.innerHTML = attachedFiles.map((f, idx) => `
-            <div class="upload-preview">
-                ${escapeHtml(f.name)} (${(f.size/1024).toFixed(0)} KB)
-                <span style="cursor:pointer; margin-left:6px;" onclick="removeFile(${idx})">❌</span>
-            </div>
-        `).join('');
-    }
-
-    window.removeFile = (idx) => {
-        attachedFiles.splice(idx, 1);
-        updateFilePreview();
-    };
-
-    // Add message to UI
-    function addMessage(text, sender, meta = {}) {
-        const msgDiv = document.createElement('div');
-        msgDiv.className = sender === 'user' ? 'user-message' : 'assistant-message';
-        msgDiv.textContent = text || '(empty)';
-        if (meta.attachments && meta.attachments.length) {
-            const attachSpan = document.createElement('div');
-            attachSpan.className = 'attachment-badge';
-            attachSpan.innerHTML = '📎 ' + meta.attachments.map(a => escapeHtml(a.name)).join(', ');
-            msgDiv.appendChild(attachSpan);
+        if (!message && attachments.length === 0) {
+          return new Response(JSON.stringify({ error: "No message or attachments" }), { status: 400, headers: corsHeaders(request) });
         }
-        messagesDiv.appendChild(msgDiv);
-        scrollToBottom();
-        return msgDiv;
-    }
 
-    let typingDiv = null;
-    function showTyping() {
-        if (typingDiv) return typingDiv;
-        typingDiv = document.createElement('div');
-        typingDiv.className = 'typing-indicator';
-        typingDiv.innerHTML = '<span></span><span></span><span></span>';
-        messagesDiv.appendChild(typingDiv);
-        scrollToBottom();
-        return typingDiv;
-    }
-    function hideTyping() {
-        if (typingDiv) {
-            typingDiv.remove();
-            typingDiv = null;
+        // Load existing conversation
+        let conversation = await getHistory(env, sessionId);
+
+        // Internet search
+        let searchContext = "";
+        if (useInternetSearch && message) {
+          const results = await searchInternet(message);
+          if (results) searchContext = `\n\n[Internet search results]\n${results}\n`;
         }
-    }
-    function scrollToBottom() {
-        messagesDiv.scrollTop = messagesDiv.scrollHeight;
-    }
 
-    // Load conversation history from worker
-    async function loadHistory() {
-        try {
-            const res = await fetch(`${WORKER_URL}/history?sessionId=${sessionId}`);
-            if (!res.ok) return;
-            const data = await res.json();
-            if (data.history && data.history.length) {
-                messagesDiv.innerHTML = '';
-                for (const msg of data.history) {
-                    addMessage(msg.content, msg.role, { attachments: msg.attachments || [] });
-                }
-                scrollToBottom();
-            }
-        } catch (err) {
-            console.warn('Failed to load history', err);
-        }
-    }
+        let userContent = message;
+        if (attachments.length) userContent += `\n\n[Attachments: ${attachments.join(", ")}]`;
+        if (searchContext) userContent += searchContext;
 
-    // Refresh raw history display (Developer Kit)
-    async function refreshRawHistory() {
-        try {
-            const res = await fetch(`${WORKER_URL}/history?sessionId=${sessionId}`);
-            const data = await res.json();
-            rawHistoryDiv.innerText = JSON.stringify(data.history || [], null, 2);
-        } catch (err) {
-            rawHistoryDiv.innerText = 'Error loading history';
-        }
-    }
-    refreshHistoryBtn.onclick = refreshRawHistory;
+        const finalSystemPrompt = systemPrompt || "You are Aliff, a helpful, factual AI assistant. Keep answers short and clear.";
 
-    // Clear all developer settings
-    clearLocalStorageBtn.onclick = () => {
-        localStorage.removeItem('aliff_system_prompt');
-        localStorage.removeItem('aliff_internet_search');
-        localStorage.removeItem('aliff_dev_note');
-        loadDevSettings();
-        alert('Developer Kit settings reset to defaults.');
-    };
+        const apiMessages = [
+          { role: "system", content: finalSystemPrompt },
+          ...conversation,
+          { role: "user", content: userContent }
+        ];
 
-    // Send message
-    async function sendMessage() {
-        const text = messageInput.value.trim();
-        if (!text && attachedFiles.length === 0) return;
+        if (stream) {
+          const deepseekRes = await callDeepSeek(env, apiMessages, true);
+          const { readable, writable } = new TransformStream();
+          const writer = writable.getWriter();
+          const encoder = new TextEncoder();
 
-        // Add user message to UI (optimistic)
-        addMessage(text || '(attachment only)', 'user', { attachments: attachedFiles.map(f => ({ name: f.name, size: f.size })) });
-        messageInput.value = '';
-        messageInput.style.height = 'auto';
-
-        showTyping();
-
-        // Upload files
-        let uploadedKeys = [];
-        for (const file of attachedFiles) {
-            const formData = new FormData();
-            formData.append('file', file);
-            formData.append('sessionId', sessionId);
+          let fullReply = "";
+          (async () => {
+            const reader = deepseekRes.body.getReader();
+            const decoder = new TextDecoder();
             try {
-                const uploadRes = await fetch(`${WORKER_URL}/upload`, { method: 'POST', body: formData });
-                const uploadData = await uploadRes.json();
-                if (uploadData.ok) uploadedKeys.push(uploadData.key);
-            } catch (err) { console.warn('Upload failed', file.name, err); }
-        }
-        attachedFiles = [];
-        updateFilePreview();
-
-        // Build payload with developer settings
-        const systemPrompt = systemPromptInput.value;
-        const useInternetSearch = internetSearchToggle.checked;
-        const devNote = devNoteInput.value.trim();
-        let finalMessage = text;
-        if (devNote) {
-            finalMessage = `[Developer note: ${devNote}]\n\n${finalMessage}`;
-        }
-
-        const streamEnabled = streamToggle.checked;
-        const payload = {
-            message: finalMessage,
-            sessionId,
-            attachments: uploadedKeys,
-            stream: streamEnabled,
-            systemPrompt,
-            useInternetSearch
-        };
-
-        try {
-            if (streamEnabled) {
-                const response = await fetch(`${WORKER_URL}/chat`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
-                if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                const reader = response.body.getReader();
-                const decoder = new TextDecoder();
-                let assistantDiv = null;
-                let assistantText = '';
-                while (true) {
-                    const { done, value } = await reader.read();
-                    if (done) break;
-                    const chunk = decoder.decode(value);
-                    const lines = chunk.split('\n');
-                    for (const line of lines) {
-                        if (line.startsWith('data: ')) {
-                            const data = line.slice(6);
-                            if (data === '[DONE]') {
-                                hideTyping();
-                                break;
-                            }
-                            try {
-                                const parsed = JSON.parse(data);
-                                const token = parsed.token || '';
-                                if (token) {
-                                    assistantText += token;
-                                    if (!assistantDiv) {
-                                        assistantDiv = addMessage(assistantText, 'assistant');
-                                    } else {
-                                        assistantDiv.querySelector('.assistant-message').textContent = assistantText;
-                                    }
-                                    scrollToBottom();
-                                }
-                            } catch (e) {}
-                        }
+              while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                const chunk = decoder.decode(value);
+                const lines = chunk.split("\n");
+                for (const line of lines) {
+                  if (line.startsWith("data: ")) {
+                    const data = line.slice(6);
+                    if (data === "[DONE]") {
+                      await writer.write(encoder.encode(`data: {"token":"","done":true}\n\n`));
+                      break;
                     }
+                    try {
+                      const parsed = JSON.parse(data);
+                      const token = parsed.choices?.[0]?.delta?.content || "";
+                      if (token) {
+                        fullReply += token;
+                        await writer.write(encoder.encode(`data: ${JSON.stringify({ token })}\n\n`));
+                      }
+                    } catch (e) {}
+                  }
                 }
-                hideTyping();
-            } else {
-                const response = await fetch(`${WORKER_URL}/chat`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
-                const data = await response.json();
-                hideTyping();
-                addMessage(data.reply || 'Error: No reply', 'assistant');
+              }
+              const newConversation = [
+                ...conversation,
+                { role: "user", content: userContent },
+                { role: "assistant", content: fullReply }
+              ];
+              await saveHistory(env, sessionId, newConversation);
+            } catch (err) {
+              console.error("Streaming error", err);
+            } finally {
+              await writer.close();
             }
-        } catch (err) {
-            console.error(err);
-            hideTyping();
-            addMessage(`Network error: ${err.message}. Check worker URL and CORS.`, 'assistant');
+          })();
+
+          return new Response(readable, {
+            headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", ...corsHeaders(request) }
+          });
+        } else {
+          const deepseekRes = await callDeepSeek(env, apiMessages, false);
+          const data = await deepseekRes.json();
+          const reply = data.choices?.[0]?.message?.content || "Sorry, I couldn't generate a response.";
+          const newConversation = [
+            ...conversation,
+            { role: "user", content: userContent },
+            { role: "assistant", content: reply }
+          ];
+          await saveHistory(env, sessionId, newConversation);
+          return new Response(JSON.stringify({ reply }), { headers: corsHeaders(request) });
         }
+      } catch (err) {
+        console.error(err);
+        return new Response(JSON.stringify({ error: err.message }), { status: 500, headers: corsHeaders(request) });
+      }
     }
 
-    sendBtn.onclick = sendMessage;
-    messageInput.addEventListener('keypress', (e) => {
-        if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault();
-            sendMessage();
-        }
-    });
-    messageInput.addEventListener('input', () => {
-        messageInput.style.height = 'auto';
-        messageInput.style.height = Math.min(messageInput.scrollHeight, 150) + 'px';
-    });
-
-    newSessionBtn.onclick = () => {
-        localStorage.removeItem('aliff_session_id');
-        location.reload();
-    };
-
-    // Initialise
-    loadDevSettings();
-    loadHistory();
-    refreshRawHistory();
-</script>
-</body>
-</html>
+    return new Response("Not found", { status: 404, headers: corsHeaders(request) });
+  }
+};
